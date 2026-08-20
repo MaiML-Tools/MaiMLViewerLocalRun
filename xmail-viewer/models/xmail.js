@@ -33,18 +33,13 @@ const C_MODEL = '[xmail]';
 	let cypher = cypher_api.get_cypher('get_xmail');
 	logger.app.debug(C_MODEL + 'Cypher : ' + cypher.toString());
 
-	var graphJson = '[';
-	var idx = 0;
+	var records = [];
 
 	await session
 		.run(cypher)
 		.then(function(result) {
 			result.records.forEach(function(record) {
 				session.close();
-
-				if (idx >= 1) {
-					graphJson = graphJson + ',';
-				}
 
 				// テーブル形式データをセル内における表現に変換する関数
 				function tableToString(table, titles) {
@@ -80,49 +75,28 @@ const C_MODEL = '[xmail]';
 				var insCol = tableToString(insertions, ['uri', 'uuid']);
 				logger.app.debug('[Insertions column] ' + insCol);
 
-				graphJson =
-					graphJson +
-					'{"del_link": "' +
-					record.get('nid') +
-					'", ' +
-					'"nid": "' +
-					record.get('nid') +
-					'", ' +
-					'"file": ' +
-					JSON.stringify(record.get('file')) +
-					', ' +
-					'"xmail_uuid": "' +
-					record.get('xmail_info')[0] +
-					'", ' +
-					'"xmail_name": "' +
-					record.get('xmail_info')[1] +
-					'", ' +
-					'"xmail_description": "' +
-					record.get('xmail_info')[2] +
-					'", ' +
-					'"creators": "' +
-					creatorCol +
-					'", ' +
-					'"vendors": "' +
-					vendorCol +
-					'", ' +
-					'"owners": "' +
-					ownerCol +
-					'", ' +
-					'"linkages": "' +
-					lnkCol +
-					'", ' +
-					'"insertions": "' +
-					insCol +
-					'"}';
+				// 文字列連結ではなくオブジェクトとして保持する。
+				// バックスラッシュや二重引用符を含む値（例: "KRATOS\appslab"）が
+				// そのまま連結されると不正なJSONになるため、
+				// 最後に JSON.stringify() で一括エスケープする方式に変更（201-XXXX対応）。
+				records.push({
+					del_link: String(record.get('nid')),
+					nid: String(record.get('nid')),
+					file: record.get('file'),
+					xmail_uuid: record.get('xmail_info')[0],
+					xmail_name: record.get('xmail_info')[1],
+					xmail_description: record.get('xmail_info')[2],
+					creators: creatorCol,
+					vendors: vendorCol,
+					owners: ownerCol,
+					linkages: lnkCol,
+					insertions: insCol
+				});
 
 				logger.app.debug('xmail_info=' + record.get('xmail_info').length);
 				logger.app.debug('creators=' + record.get('creators').length);
 				logger.app.debug('vendors=' + record.get('vendors').length);
-				idx = idx + 1;
 			});
-
-			graphJson = graphJson + ']';
 		})
 		.catch(function(error) {
 			session.close();
@@ -131,6 +105,13 @@ const C_MODEL = '[xmail]';
 		});
 
 	driver.close();
+
+	// 常に JSON.stringify() で有効なJSONを返す。
+	// records が0件の場合は自然に '[]'（有効な空配列）になる。
+	// ※以前は「0件時のみ不正な文字列 '[' を返す」という特別扱いをしていたが、
+	//   これは無効なJSONであり、かつ routes/xmail-list.js 側の404判定にも
+	//   誤って一致してしまうバグの原因だったため廃止。
+	var graphJson = JSON.stringify(records);
 
 	return graphJson;
 };
